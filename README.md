@@ -126,7 +126,7 @@ Once we subtract the reference wrong trace from all the others, we get a much cl
 
 But can we find a case where **Simple Power Analysis** doesn’t work?
 
-Absolutely. In fact, there are several—but one of the most common is when we're dealing with encryption algorithms where the execution path stays the **same**, no matter what the input data is.
+Absolutely. In fact, there are several—but one of the most common is when we're dealing with encryption algorithms where the variation in power consumption is very minute because it differs majorly with the data processed.
 
 No branching, no obvious differences in power consumption.  
 Tough break, right?
@@ -158,9 +158,10 @@ As a result, operations involving data with different Hamming Weights can leave 
 
 ---
 
-### But what kind of algorithms does DPA actually work on?
+### So, what encryption algorithm are we going to be working with?
 
-One of the most widely studied—and vulnerable—algorithms is the **Advanced Encryption Standard**, or [AES](https://www.geeksforgeeks.org/computer-networks/advanced-encryption-standard-aes/).
+One of the most widely studied and used algorithms is the **Advanced Encryption Standard**, or [AES](https://www.geeksforgeeks.org/computer-networks/advanced-encryption-standard-aes/).  
+Also refer [here](https://en.wikipedia.org/wiki/Advanced_Encryption_Standard) for more info on AES and attacks on it.
 
 It’s a symmetric encryption algorithm used practically everywhere: from securing Wi-Fi to encrypting files on your laptop.  
 And yes, it's very much within the scope of DPA techniques.
@@ -170,6 +171,67 @@ So before we go further, let’s take a quick dive into how **AES encryption** w
 
 ### Advanced Encryption Standad (AES)
 
+AES always operates in 16-byte blocks, which means that you must encrypt 16
+bytes at a time. AES has three possibilities for key length: 128-bit (16 bytes),
+192-bit (24 bytes), or 256-bit (32 bytes).  
+Longer keys typically mean stronger
+encryption, as any sort of brute-force attack takes exponentially longer to
+crack for longer keys. We'll primarily work with **128-bit AES**.  
+AES operates on a 4 × 4 column-major order array of 16 bytes `b0, b1, ..., b15` termed the state:
+![State Array](./resources/aes_array.png)
+  
+**Here is a high level high-level description of the algorithm**  
+There are multiple rounds of encryption for an application of AES. Each round has a specific *round key* which is derived from the **AES key schedule**. Let's take a look at what one round generally consists of:
+
+- `AddRoundKey` - each byte of the data input is combined with the corresponding byte of the round key using **bitwise XOR**.
+
+- `SubBytes` - each byte is substituted by another byte. It is performed using a lookup table also called the **S-box**.
+
+
+>  <div style="display: inline-block;">
+>    <img src="resources/sbox.png" alt="S-box" width="600">
+>    <div style="text-align: center; width: 100%; font-size: 0.9em; color: gray;">
+>      <em>S-box generally used in AES encryption</em>
+>    </div>
+>  </div>  
+> <br>
+
+> Each byte is represented in hexadecimal and the corresponding digits/symbols are matched with the rows and columns to give us the output byte.  
+> Ex: `0x3f` corresponds to `row 3` and `column f` which gives `0x75`
+- `ShiftRows` - a transposition step where the last three rows of the state are shifted cyclically a certain number of steps.
+
+- `MixColumns` - a linear mixing operation which operates on the columns of the state, combining the four bytes in each column.  
+
+Since performing DPA on the entire round of encryption can get a bit complex we'll be focusing mainly on the first two steps - *AddRoundKey and SubBytes*.  
+> If you do want to explore the full attack on AES, here is a great [paper](./resources/AESCounterAttackPaper.pdf).
+
+So let's get on with our DPA attack. We'll focus on one byte of the 16-byte state. The same can be applied to all the bytes to get the full key.
+
+---
+
+The first step is to send random data to the device and observe the power consumption during the encryption process (typically the first couple of rounds).  
+The captured data might look something like this:  
+
+![Power Trace for AES Encryption](./resources/dpa_initial_trace.png)
+
+Now comes the fun part: how do we extract useful information from this mess of traces?
+
+The core idea behind DPA is to split the collected power traces into two groups—based on the value of a specific bit in a *hypothetical* intermediate result. To start simple, we’ll focus on guessing just **one byte** of the AES key at a time.
+
+For simulation purposes, we’ll define our own AES encryption function and compute the intermediate output using the same plaintext inputs, combined with our *guessed key byte*.
+
+Since we're assuming that the power leakage is primarily influenced by a **specific bit** of that output byte, we’ll focus on that bit alone.
+
+As we saw earlier, due to the CMOS nature of the hardware, processing a `1` tends to consume more power than processing a `0`.  
+So, we split all the power traces into two groups:
+- One where the selected bit is `1`
+- One where the selected bit is `0`
+
+Now, here's the catch:
+- If our key guess is **correct**, the traces are split meaningfully based on the actual internal state, and there will be a measurable difference in the **average power consumption** between the two groups.
+- But if the guess is **wrong**, the split is effectively random—and any difference in average power will be negligible.
+
+This difference (or lack thereof) becomes our signal. We repeat this process for all 256 possible key byte values, and the one with the highest difference? That’s our likely key byte.
 
 
 
