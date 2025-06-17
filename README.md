@@ -1,4 +1,5 @@
 # 🔓 Hardware Hacking — Where Circuits Spill Secrets
+> by Sagar V - 2025
 
 What if you could steal data without touching the code? What if a tiny delay or a dip in power was enough to reveal a password?
 
