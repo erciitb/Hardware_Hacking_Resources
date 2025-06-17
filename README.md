@@ -356,7 +356,7 @@ So now we just calculate this coefficient for all the possible key guesses and w
 <p align="center">
   <sub>
     Made with ❤️ for Hardware Hackers<br>
-    by <a href="https://erciitb.github.io/">ERC</a>
+    by <a href="https://erc.tech-iitb.org/">ERC</a>
   </sub>
 </p>
 
