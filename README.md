@@ -18,6 +18,11 @@ Let’s begin.
 Before we dive into the fun stuff, here’s a banger of a **[book](./resources/ebin.pub_the-hardware-hacking-handbook-breaking-embedded-security-with-hardware-attacks-1nbsped-159327.pdf)** to kickstart your hardware hacking journey.  
 Think of it as your sidekick while you spy on power traces and interrogate unsuspecting microcontrollers.  
 We'll only be exploring certain concepts from the book but feel free to explore other chapters if you want!  
+
+> **Note**: Throughout this resource there are multiple companion python notebooks to help you simulate attacks and learn more effectively. To utilize these properly you'll need certain python libraries like ```chipwhisperer```, `matplotlib`, `numpy`, `tqdm`, `holoviews` and `bokeh`.  
+> Please ensure these are installed before running the notebooks.
+
+
 Now onto the fun stuff 😈.
 
 ---
@@ -122,7 +127,8 @@ Once we subtract the reference wrong trace from all the others, we get a much cl
  
  ---
 
-> But it's not just password cracking, we can also apply it on multiple encryption algorithms like **ECDSA**, **RSA** etc. You can learn more abouut them in *Chapter 8* of the [book](./resources/ebin.pub_the-hardware-hacking-handbook-breaking-embedded-security-with-hardware-attacks-1nbsped-159327.pdf).
+> But it's not just password cracking, we can also apply it on multiple encryption algorithms like **ECDSA**, **RSA** etc. You can learn more abouut them in *Chapter 8* of the [book](./resources/ebin.pub_the-hardware-hacking-handbook-breaking-embedded-security-with-hardware-attacks-1nbsped-159327.pdf).  
+> Here is a sample [Python implementation](./resources/HHH_08_Ive_Got_the_Power_Introduction_to_Power_Analysis.ipynb) of a full SPA attack on ECDSA algorithm. 
 
 But can we find a case where **Simple Power Analysis** doesn’t work?
 
@@ -155,6 +161,8 @@ This concept becomes highly relevant in power analysis because many digital circ
 As a result, operations involving data with different Hamming Weights can leave behind subtle patterns in power consumption—patterns that, with the right approach, can reveal information about the data being processed.
 
 > If you want to explore power consumption in CMOS circuits further, here is a great [resource](./resources/cmos_power_consumption.pdf).
+
+> Here is a great [Python simulation](./resources/Lab%203_1%20-%20Large%20Hamming%20Weight%20Swings%20(MAIN).ipynb) showing the increase in power consumption with *Hamming Weight*.
 
 ---
 
@@ -205,7 +213,9 @@ There are multiple rounds of encryption for an application of AES. Each round ha
 Since performing DPA on the entire round of encryption can get a bit complex we'll be focusing mainly on the first two steps - *AddRoundKey and SubBytes*.  
 > If you do want to explore the full attack on AES, here is a great [paper](./resources/AESCounterAttackPaper.pdf).
 
-So let's get on with our DPA attack. We'll focus on one byte of the 16-byte state. The same can be applied to all the bytes to get the full key.
+So let's get on with our DPA attack. We'll focus on one byte of the 16-byte state. The same can be applied to all the bytes to get the full key.  
+
+> Here is a [basic demo](./resources/Lab%203_2%20-%20Recovering%20Data%20from%20a%20Single%20Bit.ipynb) on how to recover a single bit of data from an internal state of an AES implementation.
 
 ---
 
@@ -231,7 +241,123 @@ Now, here's the catch:
 - If our key guess is **correct**, the traces are split meaningfully based on the actual internal state, and there will be a measurable difference in the **average power consumption** between the two groups.
 - But if the guess is **wrong**, the split is effectively random—and any difference in average power will be negligible.
 
-This difference (or lack thereof) becomes our signal. We repeat this process for all 256 possible key byte values, and the one with the highest difference? That’s our likely key byte.
+This difference (or lack thereof) becomes our signal. We repeat this process for all 256 possible key byte values, and the one with the highest difference? That’s our likely key byte.  
+
+Here’s a sample plot showing the difference between the average of the `"ones"` group and the `"zeroes"` group—for every possible key guess:  
+
+![DPA Difference Plot](./resources/dpa_diff_plot.png)
+
+Most of the traces stay pretty flat, which means those guesses didn’t really split the power traces in any meaningful way.  
+But the *blue* trace? That one clearly stands out, with some solid spikes at specific points in time.
+
+This sharp difference is a strong sign that we’re on the right track—and when it comes to power, the numbers speak for themselves.  
+
+> Here is a [Python Simulation]() for a DPA attack on an implementation of AES. The power traces are pre-recorded from our encrypting microcontroller.
+
+---
+
+But before we celebrate, there’s one small catch.  
+Sometimes, this whole process doesn’t actually point us to the correct key. Instead, we get something a little sneakier—what we like to call **ghost peaks**.
+
+These are misleading spikes in the graph that *look* like they’re pointing to the right key, but they’re just pretending. Sneaky, right? Below is an example of a plot with *ghost peak*.
+
+![Ghost Peaks](./resources/ghost_peaks.png)  
+
+As we can see, both the red and the green plot have pretty significant peaks. Well that poses an issue right we can't accurately guess which is the correct key guess. There are many causes for this like:
+
+  - **Incorrect Target Byte** - maybe we made an error by looking at the wrong byte whereas the leakage is from a totally different byte/bit.
+
+  - **Correlation leakage** - Even when our key guess is wrong, it can still accidentally line up with patterns in the real power consumption—just enough to cause a fake spike in the graph. This happens because certain wrong key guesses might still produce intermediate values that are *statistically similar* to the real one, especially when we look at just a single bit.  
+
+  - **Signal misalignment** - happens when power traces don’t line up properly—small timing variations during measurement can shift the key moments in each trace.  
+  As a result, when we average the groups, the real patterns get smeared out and random noise can show up as misleading spikes—aka ghost peaks.  
+
+  - **Statistical coincidence** - it might just be a statistical coincidence arising due to, primarily, a low number of samples/traces.  
+
+So how do we fix this?  
+Some ways are:
+
+- Increase the number of traces recorded
+- Change the targetted bit and combine solutions from multiple bits
+- Window the input data - look at only a particular part of the trace where you know (from examining a lot of traces) the processing of that bit is occurring.  
+
+But all of these solutions are too time and resource consuming and are simply impractical when it comes to actual implementation. So how can we do better?  
+
+Let's try out the same technique but this time we include the **hamming weight** concept we saw earlier.  
+
+---
+
+## Correlational Power Analysis
+
+Alright, so we’ve seen how SPA and DPA do their thing—spotting patterns, splitting traces, and looking for obvious signs of the correct key.  
+But sometimes, the traces don’t give away their secrets that easily. The differences are subtle, and averages just don’t cut it.  
+That’s where **Correlational Power Analysis (CPA)** comes in.
+
+Instead of just grouping and comparing, CPA uses a bit of brainpower. We take a guess at the key, figure out what the power consumption *should* look like based on that guess, and then see how closely it matches the actual trace.  
+If the two line up well, we’re probably onto something. If not, we move on to the next guess—no hard feelings.
+
+We saw earlier that **Hamming Weight** is just the number of ones in a binary number.  
+Now here’s the cool part—there’s actually a pretty solid relationship between the Hamming weight of a byte and how much power gets used while processing it. And it’s not some vague trend—it’s **linear**!
+
+> See this relationship in action with a [Python Simulation](./resources/Lab%204_1%20-%20Power%20and%20Hamming%20Weight%20Relationship%20(MAIN).ipynb).
+
+Here’s a sample graph to show what that relationship might look like:
+
+![Power v/s HW](./resources/power_vs_hw.png)
+
+So how do we use this in practice? It’s a lot like what we did in DPA.  
+We start by guessing a key, run it through our AES function, and get the *hypothetical output*. For each output byte, we calculate its Hamming weight and match it with the corresponding power trace we recorded.
+
+Now we want to check if there's a nice clean relationship between the Hamming weights and the actual power used.  
+To do that, we use something called the **Pearson correlation coefficient**—fancy name, but all it does is tell us how strongly two things are related.
+
+If the numbers line up well, that’s a big clue that our key guess is probably on point.
+
+The actual algorithm is as follows for datasets $X$ and $Y$ of length $N$, with means of $\bar{X}$ and $\bar{Y}$, respectively:
+
+$$r = \frac{cov(X, Y)}{\sigma_X \sigma_Y}$$
+
+$cov(X, Y)$ is the covariance of `X` and `Y` and can be calculated as follows:
+
+$$cov(X, Y) = \sum_{n=1}^{N}[(Y_n - \bar{Y})(X_n - \bar{X})]$$
+
+$\sigma_X$ and $\sigma_Y$ are the standard deviation of the two datasets. This value can be calculated with the following equation:
+
+$$\sigma_X = \sqrt{\sum_{n=1}^{N}(X_n - \bar{X})^2}$$  
+
+If $r$ is closer to one, it means that the two datasets are more linearly related. So in this case, $X$ is the actual power traces observed and $Y$ is the hamming weight data we got from our *hypothetical output*.  
+
+So now we just calculate this coefficient for all the possible key guesses and whichever is the highest is most likely to be the correct key guess.
+
+> There is actually a way to expand on this even further. So we can see above that we need to go through all the traces before we get the output of the pearson coefficient.  This isn't too bad for a short attack, for a much longer one (think 10k+ traces) we won't get any feedback from the attack until it's finished. Also, if we didn't capture enough traces for the attack, the entire analysis calculation needs to be repeated! Instead of using the original correlation equation, we can instead use an equivalent "online" version that can be easily updated with more traces:  
+> $$r_{i,j} = \frac{D\sum_{d=1}^{D}h_{d,i}t_{d,j}-\sum_{d=1}^{D}h_{d,i}\sum_{d=1}^{D}t_{d,j}}{\sqrt{((\sum_{d=1}^Dh_{d,i})^2-D\sum_{d=1}^Dh_{d,i}^2)-((\sum_{d=1}^Dt_{d,j})^2-D\sum_{d=1}^Dh_{d,j}^2)}}$$  
+> where,
+>| **Equation** |  **Value**  | 
+>|--------------|------------|
+>|  d           | trace number |
+>|  i           |subkey guess |
+>| j |  sample point in trace |
+>| h |  guess for power consumption | 
+>| t | traces |  
+> 
+> You can find below a simulation of what it would be like to run the above algorithm to get our 16 byte key.
+> <video controls src="./resources/cpa_video.mp4" title="CPA Simulation"></video>
+
+> [Python Simulation](./resources/Lab%204_2%20-%20CPA%20on%20Firmware%20Implementation%20of%20AES%20(MAIN).ipynb) on CPA on firmware implementation of AES.
+
+---
+
+### This is just the beginning of your hardware hacking journey. Side-channel attacks like power analysis are only the first step. As you go deeper, techniques like fault injection open up a whole new world of possibilities—and take your hardware hacking game to the next level.
+
+
+---
+
+<p align="center">
+  <sub>
+    Made with ❤️ for Hardware Hackers<br>
+    by <a href="https://erciitb.github.io/">ERC</a>
+  </sub>
+</p>
 
 
 
